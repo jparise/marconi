@@ -1,3 +1,4 @@
 syntax: glob
 build/
+twisted/plugins/dropin.cache
 *.pyc
