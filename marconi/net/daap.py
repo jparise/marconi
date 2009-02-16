@@ -269,6 +269,7 @@ class Resource:
     implements(resource.IResource)
 
     isLeaf = False
+    library = None
 
     def putChild(self, path, child):
         from twisted.web.server import UnsupportedMethod
@@ -318,7 +319,7 @@ class ServerInfoResource(Resource):
         if not self.preRender(request):
             return ''
 
-        name = String('Marconi')
+        name = String(self.library.name)
 
         # Respond with protocol versions appropriate to this request's client.
         version = request.getHeader('Client-DAAP-Version')
@@ -352,7 +353,8 @@ class ServerInfoResource(Resource):
 #       r.add(Block('msal', Byte(0)))               # auto-logout?
 #       r.add(Block('msrs', Byte(0)))               # resolve (requires mspi)?
 
-        r.add(Block('msdc', Int(1)))                # database count
+        # database count
+        r.add(Block('msdc', Int(self.library.playlists.count())))
 
         return r.serialize()
 
@@ -375,31 +377,30 @@ class DatabasesResource(Resource):
         if not self.preRender(request):
             return ''
 
-        name = String('Marconi')
-
         r = Block('avdb', List())                   # database response
         r.add(Block('mstt', Int(200)))              # status
         r.add(Block('muty', Byte(0)))               # update type (always 0)
         r.add(Block('mtco', Int(1)))                # matching record count
         r.add(Block('mrco', Int(1)))                # returned record count
 
-        db = Block('mlit', List())                  # database record
-        db.add(Block('miid', Int(1)))               # database id
-        db.add(Block('mper', Long(1)))              # database persistent id
-        db.add(Block('minm', name))                 # database name
-        db.add(Block('mimc', Int(0)))               # database item count
-        db.add(Block('mctc', Int(0)))               # database container count
+        databases = Block('mlcl', List())           # record listing
 
-        list = Block('mlcl', List())                # record listing
-        list.add(db)
+        for p in self.library.playlists.all():
+            db = Block('mlit', List())              # database record
+            db.add(Block('miid', Int(p.id)))        # database id
+            db.add(Block('mper', Long(p.id)))       # database persistent id
+            db.add(Block('minm', String(p.name)))   # database name
+            db.add(Block('mimc', Int(0)))           # database item count
+            db.add(Block('mctc', Int(0)))           # database container count
+            databases.add(db)
 
-        r.add(list)
+        r.add(databases)
 
         return r.serialize()
 
     def getChild(self, path, request):
-        print request
-        return DatabaseItemsResource()
+        id = int(path)
+        return DatabaseItemsResource(id)
 
     def getChildWithDefault(self, name, request):
         return self.getChild(name, request)
@@ -408,9 +409,14 @@ class DatabasesResource(Resource):
 class DatabaseItemsResource(Resource):
     isLeaf = True
 
+    def __init__(self, id):
+        self.id = id
+
     def render(self, request):
         if not self.preRender(request):
             return ''
+
+        playlist = self.library.playlists.filter_by(id=self.id)
 
         name = String('Test Song Name')
 
@@ -465,8 +471,11 @@ class DatabaseContainersResource(Resource):
         return r.serialize()
 
 
-def getService(port=3689):
+def getService(library, port=3689):
     """Return a DAAP server service instance attached to the given port."""
     from twisted.application.internet import TCPServer
     from twisted.web import server
-    return TCPServer(port, server.Site(RootResource()))
+
+    Resource.library = library
+
+    return TCPServer(port, server.Site(server.Site(RootResource())))

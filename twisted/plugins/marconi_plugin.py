@@ -8,7 +8,10 @@ from zope.interface import implements
 
 class Options(usage.Options):
     optParameters = [
+        ['debug', '', False, "Enables debug output", bool],
+        ['db', 'd', ':memory:', "The service database's path", str],
         ['name', 'n', 'Marconi', "The server's public name", str],
+        ['port', 'p', 3689, "The server's port", int],
     ]
 
 class ServiceMaker(object):
@@ -17,9 +20,16 @@ class ServiceMaker(object):
     description = 'A network media server'
     options = Options
 
-    def _getDaapService(self, options):
+    def _createDatabase(self, options):
+        from marconi import db
+        return db.create(options['db'], options['debug'])
+
+    def _getDaapService(self, library, options):
         from twisted.internet import reactor
         from marconi.net import bonjour, daap
+
+        port = options['port']
+        name = options['name']
 
         # The DAAP service hierarchy consists of both the DAAP protocol
         # service and the Bonjour service discovery protocol.  We add them
@@ -27,21 +37,27 @@ class ServiceMaker(object):
         root = MultiService()
 
         # DAAP Protocol
-        service = daap.getService()
+        service = daap.getService(library, port=port)
         service.setServiceParent(root)
 
         # Bonjour Service Discovery Protocol
-        service = bonjour.Service(reactor, "_daap._tcp", 3689, options['name'])
+        service = bonjour.Service(reactor, "_daap._tcp", port, name)
         service.setServiceParent(root)
 
         return root
 
     def makeService(self, options):
+        from marconi.base import Library
+
+        # Create the server's database and library instances.
+        db = self._createDatabase(options)
+        library = Library(db, options['name'])
+
         # Create the root of our application's service hierarchy.
         root = MultiService()
 
         # DAAP Service
-        service = self._getDaapService(options)
+        service = self._getDaapService(library, options)
         service.setServiceParent(root)
 
         return root
